@@ -342,7 +342,7 @@ function removePartPayment(id) {
 window.removePartPayment = removePartPayment;
 
 // Calculate amortization schedule with part payments
-function calculateSchedule(principal, rate, tenureMonths, emi, partPayments = [], additionalMonthlyPayment = 0) {
+function calculateSchedule(principal, rate, tenureMonths, emi, partPayments = [], additionalMonthlyPayment = 0, additionalPaymentFrequency = 'monthly') {
     const schedule = [];
     let balance = principal;
     const monthlyRate = rate / 100 / 12;
@@ -372,11 +372,23 @@ function calculateSchedule(principal, rate, tenureMonths, emi, partPayments = []
         let prepaymentAmount = 0;
         let emiChanged = false;
 
-        // Apply additional monthly payment
-        const extraMonthly = Math.max(0, additionalMonthlyPayment); // Ensure non-negative
+        // Apply additional payment based on frequency
+        let extraPayment = 0;
+        const recurringPaymentAmount = Math.max(0, additionalMonthlyPayment);
 
-        // Total principal payment for this month starts with regular principal part + extra monthly
-        let totalPrincipalForMonth = principalPart + extraMonthly;
+        if (recurringPaymentAmount > 0) {
+            if (additionalPaymentFrequency === 'monthly') {
+                extraPayment = recurringPaymentAmount;
+            } else if (additionalPaymentFrequency === 'yearly') {
+                // Apply only every 12th month (Dec of each year relative to start)
+                if (month % 12 === 0) {
+                    extraPayment = recurringPaymentAmount;
+                }
+            }
+        }
+
+        // Total principal payment for this month starts with regular principal part + extra payment
+        let totalPrincipalForMonth = principalPart + extraPayment;
 
         // Handle One-time Prepayments
         if (prepaymentMap[month]) {
@@ -389,10 +401,6 @@ function calculateSchedule(principal, rate, tenureMonths, emi, partPayments = []
             // Logic for Reduce EMI vs Tenure happens after we know the new balance impact
             if (prepaymentType === 'reduce_emi') {
                 emiChanged = true;
-                // We will recalculate EMI for NEXT month based on new balance? 
-                // Usually, the prepayment reduces balance immediately, and EMI changes from next month OR this month?
-                // Standard logic: Prepayment happens, balance drops.
-                // If 'reduce_emi': Maintain tenure, lower EMI.
             }
         }
 
@@ -403,8 +411,6 @@ function calculateSchedule(principal, rate, tenureMonths, emi, partPayments = []
 
         if (closingBalance < 0) {
             // We are overpaying. Reduce the principal payment to exactly match the balance.
-            // Which component do we reduce? It doesn't strictly matter for the sum, 
-            // but logistically we reduce the 'payment' to match pending balance.
             totalPrincipalForMonth = balance;
             closingBalance = 0;
         }
@@ -416,17 +422,16 @@ function calculateSchedule(principal, rate, tenureMonths, emi, partPayments = []
 
         schedule.push({
             month: month,
-            principal: totalPrincipalForMonth - extraMonthly - prepaymentAmount, // Approximate regular principal part
+            principal: totalPrincipalForMonth - extraPayment - prepaymentAmount, // Approximate regular principal part
             interest: interestPayment,
             prepayment: prepaymentAmount,
-            additionalMonthly: extraMonthly,
+            additionalMonthly: extraPayment,
             total: interestPayment + totalPrincipalForMonth,
             balance: closingBalance,
             newEmi: emiChanged ? null : null // Placeholder if we want to track EMI changes
         });
 
         // Handle EMI Recalculation for 'Reduce EMI' type
-        // This is complex because we just closed the month.
         if (emiChanged && balance > 1) {
             const remainingMonths = Math.max(1, tenureMonths - month);
             actualEmi = calculateEMIValue(balance, rate, remainingMonths);
@@ -510,16 +515,20 @@ function calculateEMI() {
     // Get additional monthly payment
     const additionalMonthlyPayment = parseFloat(additionalMonthlyPaymentInput.value) || 0;
 
+    // Get additional payment frequency
+    const frequencyInput = document.querySelector('input[name="paymentFrequency"]:checked');
+    const paymentFrequency = frequencyInput ? frequencyInput.value : 'monthly';
+
     // Calculate base EMI (without prepayments)
     const emi = calculateEMIValue(validPrincipal, validRate, tenureMonths);
 
     // Calculate baseline scenario (without any prepayments or additional payments)
-    const baselineSchedule = calculateSchedule(validPrincipal, validRate, tenureMonths, emi, [], 0);
+    const baselineSchedule = calculateSchedule(validPrincipal, validRate, tenureMonths, emi, [], 0, 'monthly');
     const baselineTotalInterest = baselineSchedule.totalInterestPaid;
     const baselineMonths = baselineSchedule.schedule.length;
 
     // Calculate schedule with prepayments and additional monthly payment
-    const scheduleData = calculateSchedule(validPrincipal, validRate, tenureMonths, emi, partPayments, additionalMonthlyPayment);
+    const scheduleData = calculateSchedule(validPrincipal, validRate, tenureMonths, emi, partPayments, additionalMonthlyPayment, paymentFrequency);
 
     // Calculate totals
     const totalInterest = scheduleData.totalInterestPaid;
@@ -599,6 +608,32 @@ function displaySavingsMessage(interestSaved, monthsSaved, hasPrepayments) {
 function displaySchedule(schedule) {
     scheduleBody.innerHTML = '';
 
+    // Handle Rent Column Header
+    const showRent = isRentedCheckbox.checked;
+    const headerRow = document.getElementById('scheduleHeaderRow');
+
+    // Check if Rent header already exists
+    let rentHeader = headerRow.querySelector('.rent-header');
+
+    if (showRent) {
+        if (!rentHeader) {
+            rentHeader = document.createElement('th');
+            rentHeader.className = 'rent-header';
+            rentHeader.textContent = 'Rent (₹)';
+            headerRow.appendChild(rentHeader);
+        }
+    } else {
+        if (rentHeader) {
+            rentHeader.remove();
+        }
+    }
+
+    // Rent Calculation Variables
+    let currentRent = parseFloat(initialRentInput.value) || 0;
+    const stepUpPercent = parseFloat(stepUpPercentInput.value) || 0;
+    const stepUpFrequency = parseInt(stepUpFrequencyInput.value) || 1;
+    let rentYearCounter = 1;
+
     // Calculate start date (next month)
     const now = new Date();
     let currentMonth = now.getMonth(); // 0-11
@@ -619,7 +654,6 @@ function displaySchedule(schedule) {
         const hasAdditionalMonthly = payment.additionalMonthly > 0;
 
         // Calculate date for this payment (index is 0-based, payment.month is 1-based usually)
-        // We'll iterate the date processing
         let paymentMonthIndex = (currentMonth + index) % 12;
         let paymentYear = currentYear + Math.floor((currentMonth + index) / 12);
         const dateString = `${monthNames[paymentMonthIndex]} ${paymentYear}`;
@@ -636,18 +670,41 @@ function displaySchedule(schedule) {
             principalCell += ' ' + extras.join(' ');
         }
 
-        row.innerHTML = `
+        // Prepare Row HTML
+        let rowHTML = `
             <td>${dateString}</td>
             <td>${principalCell}</td>
             <td>${formatCurrency(payment.interest)}</td>
             <td>${formatCurrency(payment.total)}</td>
             <td>${formatCurrency(payment.balance)}</td>
         `;
+
+        // Append Rent Cell if active
+        if (showRent) {
+            // Apply step-up logic:
+            // Rent increases after every 'stepUpFrequency' years.
+            // We need to track the "loan year" or "rent year".
+            // index 0 to 11 = Year 1. index 12 to 23 = Year 2.
+
+            const currentYearOfLoan = Math.floor(index / 12) + 1;
+
+            // Calculate rent for this specific year
+            // Formula: Initial * (1 + rate)^floor((Year-1)/Frequency)
+            const numberOfStepUps = Math.floor((currentYearOfLoan - 1) / stepUpFrequency);
+            const calculatedRent = currentRent * Math.pow(1 + stepUpPercent / 100, numberOfStepUps);
+
+            rowHTML += `<td>${formatCurrency(calculatedRent)}</td>`;
+        }
+
+        row.innerHTML = rowHTML;
         scheduleBody.appendChild(row);
     });
 }
 
 
+
+// Event listener for add part payment button
+addPartPaymentBtn.addEventListener('click', addPartPaymentEntry);
 
 // Toggle schedule
 toggleScheduleBtn.addEventListener('click', () => {
@@ -672,11 +729,75 @@ function initCanvas() {
     pieChart.height = size;
 }
 
+// ROI Elements
+const isRentedCheckbox = document.getElementById('isRented');
+const roiInputsDetails = document.getElementById('roiInputs');
+const initialRentInput = document.getElementById('initialRent');
+const stepUpPercentInput = document.getElementById('stepUpPercent');
+const stepUpFrequencyInput = document.getElementById('stepUpFrequency');
+const roiResult = document.getElementById('roiResult');
+const totalRentEarnedDisplay = document.getElementById('totalRentEarned');
+
+// Calculate Rental Income
+function calculateRentalIncome() {
+    if (!isRentedCheckbox.checked) {
+        roiInputsDetails.style.display = 'none';
+        roiResult.style.display = 'none';
+        return;
+    }
+
+    roiInputsDetails.style.display = 'block';
+
+    const initialRent = parseFloat(initialRentInput.value) || 0;
+    const stepUpPercent = parseFloat(stepUpPercentInput.value) || 0;
+    const stepUpFrequency = parseInt(stepUpFrequencyInput.value) || 1;
+
+    // Get Loan Tenure in Years
+    let tenure = parseInt(loanTenureInput.value) || 0;
+    const type = tenureType.value;
+    const tenureYears = type === 'years' ? tenure : tenure / 12; // Approximation for rent step-up logic
+
+    if (initialRent <= 0 || tenureYears <= 0) {
+        roiResult.style.display = 'none';
+        return;
+    }
+
+    let totalRent = 0;
+    let currentMonthlyRent = initialRent;
+
+    // Calculate year by year
+    // We'll approximate partial years if tenure is e.g. 15.5 years
+    // But step-up usually happens on annual boundaries.
+
+    const fullYears = Math.floor(tenureYears);
+    const partialYear = tenureYears - fullYears;
+
+    for (let year = 1; year <= fullYears; year++) {
+        totalRent += currentMonthlyRent * 12;
+
+        // Apply step-up if frequency matches
+        if (year % stepUpFrequency === 0) {
+            currentMonthlyRent = currentMonthlyRent * (1 + stepUpPercent / 100);
+        }
+    }
+
+    // Add partial year rent (at final rate)
+    if (partialYear > 0) {
+        totalRent += currentMonthlyRent * (partialYear * 12);
+    }
+
+    totalRentEarnedDisplay.textContent = formatCurrency(totalRent);
+    roiResult.style.display = 'block';
+}
+
 // Initialize sliders fill on load
 function initializeSliders() {
     updateSliderFill(loanAmountSlider);
     updateSliderFill(interestRateSlider);
     updateSliderFill(loanTenureSlider);
+
+    // Initialize ROI calculation if previously set? (Browser might remember input values on reload)
+    calculateRentalIncome();
 }
 
 // Initialize
@@ -689,13 +810,37 @@ window.addEventListener('load', () => {
         additionalMonthlyPaymentInput.addEventListener('input', calculateEMI);
     }
 
+    // Additional Payment Frequency Listeners
+    document.querySelectorAll('input[name="paymentFrequency"]').forEach(radio => {
+        radio.addEventListener('change', calculateEMI);
+    });
+
     calculateEMI();
 
     // Show empty message if no part payments
     if (partPaymentsList.children.length === 0) {
         partPaymentsList.innerHTML = '<div class="empty-message">Click "Add Payment" to include part payments</div>';
     }
+
+
+    // ROI Listeners
+    const updateRoiAndSchedule = () => {
+        calculateRentalIncome();
+        if (scheduleTable.style.display !== 'none' && window.currentSchedule) {
+            displaySchedule(window.currentSchedule);
+        }
+    };
+
+    isRentedCheckbox.addEventListener('change', updateRoiAndSchedule);
+    initialRentInput.addEventListener('input', updateRoiAndSchedule);
+    stepUpPercentInput.addEventListener('input', updateRoiAndSchedule);
+    stepUpFrequencyInput.addEventListener('input', updateRoiAndSchedule);
+    // Loan Tenure change should also trigger ROI update
+    loanTenureInput.addEventListener('input', calculateRentalIncome);
+    loanTenureSlider.addEventListener('input', calculateRentalIncome);
+    tenureType.addEventListener('change', calculateRentalIncome);
 });
+
 
 window.addEventListener('resize', () => {
     initCanvas();

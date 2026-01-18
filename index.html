@@ -55,16 +55,66 @@
                     <h2>Part Payments / Prepayments</h2>
                     <button type="button" id="addPartPayment" class="add-btn">+ Add Payment</button>
                 </div>
-                <div class="additional-monthly-payment">
-                    <label for="additionalMonthlyPayment">Additional Monthly Payment (₹)</label>
-                    <input type="number" id="additionalMonthlyPayment" placeholder="Enter additional monthly amount"
-                        min="0" step="1000" value="0">
+                <div class="additional-payment-group">
+                    <label>Additional Recurring Payment</label>
+                    <div class="payment-input-row">
+                        <div class="input-wrapper">
+                            <input type="number" id="additionalMonthlyPayment" placeholder="Enter amount" min="0"
+                                step="1000" value="0">
+                        </div>
+                        <div class="frequency-toggle">
+                            <label class="radio-label">
+                                <input type="radio" name="paymentFrequency" value="monthly" checked>
+                                <span>Monthly</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="paymentFrequency" value="yearly">
+                                <span>Yearly</span>
+                            </label>
+                        </div>
+                    </div>
                 </div>
                 <div id="partPaymentsList" class="part-payments-list">
                     <!-- Part payment entries will be added here -->
                 </div>
                 <div id="savingsMessage" class="savings-message" style="display: none;">
                     <!-- Savings message will be displayed here -->
+                </div>
+            </div>
+
+            <div class="roi-section">
+                <div class="section-header">
+                    <h2>Property ROI Calculator</h2>
+                </div>
+                <div class="roi-toggle-wrapper">
+                    <label class="switch-label">
+                        <input type="checkbox" id="isRented">
+                        <span class="switch-text">Is this property on rent?</span>
+                    </label>
+                </div>
+
+                <div id="roiInputs" class="roi-inputs" style="display: none;">
+                    <div class="input-group">
+                        <label for="initialRent">Initial Monthly Rent (₹)</label>
+                        <input type="number" id="initialRent" placeholder="Enter monthly rent" min="0" step="500">
+                    </div>
+                    <div class="roi-grid">
+                        <div class="input-group">
+                            <label for="stepUpPercent">Annual Step-up (%)</label>
+                            <input type="number" id="stepUpPercent" placeholder="e.g. 5" min="0" max="100" step="0.5"
+                                value="5">
+                        </div>
+                        <div class="input-group">
+                            <label for="stepUpFrequency">Step-up Every (Years)</label>
+                            <input type="number" id="stepUpFrequency" placeholder="e.g. 1" min="1" max="10" step="1"
+                                value="1">
+                        </div>
+                    </div>
+
+                    <div id="roiResult" class="roi-result" style="display: none;">
+                        <span class="roi-label">Total Rent Earned during Loan Tenure</span>
+                        <span class="roi-value" id="totalRentEarned">₹0</span>
+                    </div>
                 </div>
             </div>
 
@@ -103,7 +153,7 @@
             <div id="scheduleTable" class="schedule-table-wrapper" style="display: none;">
                 <table id="amortizationTable">
                     <thead>
-                        <tr>
+                        <tr id="scheduleHeaderRow">
                             <th>Month & Year</th>
                             <th>Principal (₹)</th>
                             <th>Interest (₹)</th>
